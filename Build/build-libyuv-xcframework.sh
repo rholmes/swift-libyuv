@@ -95,6 +95,9 @@ SLICES=(
   mac-x64
   maccatalyst-arm64
   maccatalyst-x64
+  tvos-device-arm64
+  tvos-sim-arm64
+  tvos-sim-x64
 )
 
 slice_outdir() { echo "${OUT_ROOT}/$1"; }
@@ -168,6 +171,38 @@ gen_args_for_slice() {
         ios_deployment_target=\"${IOS_CATALYST_MIN}\"
         libyuv_use_neon=false
       ";;
+    tvos-device-arm64)
+      echo "${common}
+        target_os=\"ios\"
+        target_platform=\"tvos\"
+        target_cpu=\"arm64\"
+        target_environment=\"device\"
+        ios_deployment_target=\"${IOS_MIN}\"
+        ios_enable_code_signing=false
+        libyuv_use_neon=true
+        use_blink=true
+      ";;
+    tvos-sim-arm64)
+      echo "${common}
+        target_os=\"ios\"
+        target_platform=\"tvos\"
+        target_cpu=\"arm64\"
+        target_environment=\"simulator\"
+        ios_deployment_target=\"${IOS_MIN}\"
+        libyuv_use_neon=true
+        use_blink=true
+      ";;
+    tvos-sim-x64)
+      echo "${common}
+        target_os=\"ios\"
+        target_platform=\"tvos\"
+        target_cpu=\"x64\"
+        target_environment=\"simulator\"
+        ios_deployment_target=\"${IOS_MIN}\"
+        libyuv_use_neon=false
+        use_blink=true
+      ";;
+
     *) echo "error: unknown slice $slice" >&2; exit 1;;
   esac
 }
@@ -284,7 +319,7 @@ write_manifest() {
   {
     echo "libyuv commit: $(cd "${SRC_DIR}" && git rev-parse --short=12 HEAD 2>/dev/null || echo 'unknown')"
     echo "Built on: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    echo "iOS min: 13.0 | macOS min: 11.0 | Catalyst iOS min: 14.0"
+    echo "iOS min: 13.0 | macOS min: 11.0 | Catalyst iOS min: 14.0 | tvOS min: 13.0"
     echo "Flags: symbol_level=0 optimize_for_size=true libyuv_disable_jpeg=true neon(arm64)=on sve=sme=off"
   } > "${mf}"
 }
@@ -308,9 +343,14 @@ cat_uni="$(coalesce_universal "maccatalyst" \
           "${OUT_ROOT}/maccatalyst-x64/pack/libyuv.a")"
 
 # iOS Simulator
-sim_uni="$(coalesce_universal "ios-sim" \
+ios_sim_uni="$(coalesce_universal "ios-sim" \
           "${OUT_ROOT}/ios-sim-arm64/pack/libyuv.a" \
           "${OUT_ROOT}/ios-sim-x64/pack/libyuv.a")"
+
+# tvOS Simulator
+tvos_sim_uni="$(coalesce_universal "tvos-sim" \
+          "${OUT_ROOT}/tvos-sim-arm64/pack/libyuv.a" \
+          "${OUT_ROOT}/tvos-sim-x64/pack/libyuv.a")"
 
 
 # Rebuild LIBS with exactly one entry per family.
@@ -320,13 +360,15 @@ for lib in "${LIBS[@]}"; do
   case "$lib" in
     */mac-arm64/*|*/mac-x64/*) ;;           # skip; replaced by $mac_uni
     */maccatalyst-arm64/*|*/maccatalyst-x64/*) ;;  # skip; replaced by $cat_uni
-    */ios-sim-arm64/*|*/ios-sim-x64/*) ;;   # skip; replaced by $sim_uni
+    */ios-sim-arm64/*|*/ios-sim-x64/*) ;;   # skip; replaced by $ios_sim_uni
+    */tvos-sim-arm64/*|*/tvos-sim-x64/*) ;;   # skip; replaced by tvos_sim_uni
     *) new_libs+=("$lib") ;;
   esac
 done
 [[ -n "$mac_uni" ]] && new_libs+=("$mac_uni")
 [[ -n "$cat_uni" ]] && new_libs+=("$cat_uni")
-[[ -n "$sim_uni" ]] && new_libs+=("$sim_uni")
+[[ -n "$ios_sim_uni" ]] && new_libs+=("$ios_sim_uni")
+[[ -n "$tvos_sim_uni" ]] && new_libs+=("$tvos_sim_uni")
 LIBS=("${new_libs[@]}")
 
 for lib in "${LIBS[@]}"; do
