@@ -13,7 +13,7 @@ swift-libyuv/
 ├─ Package.swift
 ├─ Build/
 │  ├─ build-libyuv-xcframework.sh   ← the build script
-│  └─ libyuv/                       ← work area (created/managed by the script)
+│  └─ build-libyuv/                 ← work area (created/managed by the script)
 │     ├─ .gclient
 │     ├─ src/                       ← gclient-managed libyuv checkout
 │     ├─ src/out/                   ← GN/Ninja outputs (per-slice)
@@ -44,19 +44,33 @@ export PATH="$HOME/depot_tools:$PATH"
 
 ---
 
-## Build the XCFramework
+## Usage
 
-From the repo root:
+From the [repository root]/Build directory (where your Bash script lives):
 
 ```bash
-./Build/build-libyuv-xcframework.sh
+chmod +x build-libyuv-xcframework.sh
+
+# Standard multi-platform build (iOS, iOS Sim, macOS, Catalyst, tvOS)
+./build-libyuv-xcframework.sh
 ```
+
+### Optional toggles (environment variables)
+
+- **Strip symbols for smaller archives:**
+  ```bash
+  STRIP=1 ./build-libyuv-xcframework.sh
+  ```
+
+---
+  
+## Script Overview
 
 What happens:
 
-1. **ensure_checkout**: creates/updates a Chromium-style checkout in `Build/libyuv/` by writing `.gclient` and running `gclient sync`.  
+1. **ensure_checkout**: creates/updates a Chromium-style checkout in `build-libyuv/` by writing `.gclient` and running `gclient sync`.  
    - If `LIBYUV_REF` is set (commit, tag, or branch), it pins the solution via `gclient sync -r src@<ref>`.
-2. **Per-slice builds** using GN/Ninja (out of `Build/libyuv/src/out/...`) with size-focused flags:
+2. **Per-slice builds** using GN/Ninja (out of `build-libyuv/src/out/...`) with size-focused flags:
    - `symbol_level=0`, `optimize_for_size=true`
    - `libyuv_disable_jpeg=true`
    - `libyuv_use_neon=true` (arm64 only), `libyuv_use_sve=false`, `libyuv_use_sme=false`
@@ -72,13 +86,13 @@ What happens:
    - iOS **simulator** → arm64 + x86_64  
    - **macOS** → arm64 + x86_64  
    - **Mac Catalyst** → arm64 + x86_64  
-   *(iOS device and tvOS device remain arm64; tvOS simulator can be coalesced the same way if both arches are built.)*
-5. **Headers & module map**: an overlay headers dir is prepared (copy of `src/include`) and a `module.modulemap` is added so Swift can `import libyuv`.
+   - tvOS **simulator** → arm64 + x86_64  
+   *(iOS device and tvOS device remain arm64)*
+5. **Headers**: an overlay headers dir is prepared (copy of `src/include`) and copied into each slice's `Headers` directory.
 6. **XCFramework packaging**: `xcodebuild -create-xcframework` is called with **paired** `-library … -headers …` for each platform slice.
 7. **Output**:
-   - `Build/libyuv/dist/libyuv.xcframework`
-   - `Build/libyuv/dist/BUILD-METADATA.txt` (commit, flags, mins)
-   - The XCFramework is also copied to `Sources/libyuv.xcframework` for SwiftPM.
+   - `build-libyuv/dist/libyuv.xcframework`
+   - `build-libyuv/dist/BUILD-METADATA.txt` (commit, flags, mins)
 
 ---
 
@@ -92,7 +106,7 @@ export LIBYUV_REF=main                 # track branch tip
 export LIBYUV_REF=9f2c3a1              # exact commit
 export LIBYUV_REF=refs/tags/2024-08-01 # tag
 
-./Build/build-libyuv-xcframework.sh
+./build-libyuv-xcframework.sh
 ```
 
 The script uses `gclient sync -r "src@${LIBYUV_REF}"`, ensuring DEPS and toolchain match that ref. The exact commit used is recorded in `BUILD-METADATA.txt`.
@@ -139,9 +153,9 @@ import libyuv
 
 ```bash
 # Confirm fat archives include both arches where expected
-xcrun lipo -info Build/libyuv/src/out/macos-universal/libyuv.a
-xcrun lipo -info Build/libyuv/src/out/maccatalyst-universal/libyuv.a
-xcrun lipo -info Build/libyuv/src/out/ios-sim-universal/libyuv.a
+xcrun lipo -info build-libyuv/src/out/macos-universal/libyuv.a
+xcrun lipo -info build-libyuv/src/out/maccatalyst-universal/libyuv.a
+xcrun lipo -info build-libyuv/src/out/ios-sim-universal/libyuv.a
 
 # Inspect one slice in the XCFramework
 ls -1 Sources/libyuv.xcframework
@@ -155,7 +169,7 @@ ls -1 Sources/libyuv.xcframework
 ## Troubleshooting
 
 - **`gn.py: Could not find checkout…`**  
-  Ensure the script wrote `.gclient` under `Build/libyuv/` and that you have `gclient` on `PATH`. The script runs all GN work **inside the checkout** and places `out/` under `src/` specifically to satisfy the wrapper.
+  Ensure the script wrote `.gclient` under `build-libyuv/` and that you have `gclient` on `PATH`. The script runs all GN work **inside the checkout** and places `out/` under `src/` specifically to satisfy the wrapper.
 
 - **Duplicate platform error in `-create-xcframework`**  
   (“Both … represent two equivalent library definitions.”)  
@@ -192,6 +206,6 @@ ls -1 Sources/libyuv.xcframework
 
 - [ ] Build succeeds on a clean machine.
 - [ ] `Sources/libyuv.xcframework` updated.
-- [ ] `Build/libyuv/dist/BUILD-METADATA.txt` recorded.
+- [ ] `Build/build-libyuv/dist/BUILD-METADATA.txt` recorded.
 - [ ] Swift sample compiles with `import libyuv`.
 - [ ] Tag your release and note the libyuv commit used.
