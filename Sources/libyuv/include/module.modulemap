@@ -1,4 +1,4 @@
 module libyuv [system] {
-  umbrella header "include/libyuv.h"
+  umbrella header "libyuv.h"
   export *
 }

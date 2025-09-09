@@ -7,22 +7,14 @@ let package = Package(
   name: "swift-libyuv",
   platforms: [.iOS(.v13), .macOS(.v12), .macCatalyst(.v14), .tvOS(.v13)],
   products: [
-    .library(name: "libyuv", targets: ["clibyuv"]),
+    .library(name: "libyuv", targets: ["libyuv"]),
   ],
   targets: [
-    // 1) Binary to link (xcframework must not contain a module.modulemap)
-    .binaryTarget(
-      name: "libyuvBinary",
-      path: "Sources/libyuv.xcframework"
-    ),
-
-    // 2) C shim that vends headers + module; depends on the binary for linking
+    .binaryTarget(name: "libyuvBinary", path: "Sources/libyuv.xcframework"),
     .target(
-      name: "clibyuv",
+      name: "libyuv",
       dependencies: ["libyuvBinary"],
-      path: "Sources/clibyuv",
       publicHeadersPath: "include"
-      // add cSettings/headerSearchPath here only if you have extra nested dirs
     ),
   ]
 )
