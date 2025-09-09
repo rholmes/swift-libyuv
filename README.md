@@ -4,7 +4,7 @@ Prebiult libyuv.xcframework for iOS, macOS, Mac Catalyst and tvOS
 
 ## Usage
 
-Works as a dependency for C code like libavif (`#include "dav1d/dav1d.h"`), or import as a Swift module with `import dav1d`.
+Use as a dependency in C code with `#include <libyuv.h>`, or import as a Swift module with `import libyuv`.
 
 ## Notes
 - Built with Chromium’s GN/Ninja toolchain
