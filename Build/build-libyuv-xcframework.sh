@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 # Work area for libyuv sources and build outputs
-WORK_DIR="${WORK_DIR:-${PKG_ROOT}/Build/libyuv}"
+WORK_DIR="${WORK_DIR:-${PKG_ROOT}/Build/build-libyuv}"
 SRC_DIR="${SRC_DIR:-${WORK_DIR}/src}"     # gclient-managed libyuv checkout
 OUT_ROOT="${OUT_ROOT:-${SRC_DIR}/out}"    # ninja out dir under checkout (required by gn wrapper)
 DIST_DIR="${DIST_DIR:-${WORK_DIR}/dist}"  # xcframework output
@@ -30,6 +30,23 @@ XCBUILD="${XCBUILD:-xcodebuild}"
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "error: missing tool: $1" >&2; exit 1; }; }
 need "${GN}"; need "${NINJA}"; need "${XCBUILD}"
+
+# Toggle symbol stripping (default: off). Enable with STRIP=1 (or true/yes/on).
+STRIP="${STRIP:-0}"
+
+# Strip debug and local symbols from a static archive, preserving globals.
+# Safe for production static C libs: removes debug (-S) and local (-x),
+# does NOT use -s (which would remove all symbols).
+strip_archive() {
+  local lib="$1"
+  if [[ "${STRIP}" == "1" ]]; then
+    [[ -f "${lib}" ]] || { echo "!! strip failed, archive not found: ${lib}" >&2; exit 1; }
+    echo "==> strip ${lib}" >&2
+    strip -S -x "${lib}" || { echo "!! strip failed: ${lib}" >&2; exit 1; }
+  else
+    echo "==> strip disabled (STRIP=${STRIP}) for ${lib}" >&2
+  fi
+}
 
 # Ensure a Chromium-style checkout so depot_tools/gn.py is happy.
 # - Creates .gclient in WORK_DIR (idempotent)
@@ -290,7 +307,9 @@ build_slice() {
 
   # Pack non-thin archive from the filelist
   xcrun libtool -static -o "${outdir}/pack/libyuv.a" -filelist "${filelist}"
-  # optional: xcrun strip -S -x "${outdir}/pack/libyuv.a"
+
+  # Optionally strip the thin archive
+  strip_archive "${outdir}/pack/libyuv.a"
 
   # Return ONLY the path (stdout)
   printf '%s\n' "${outdir}/pack/libyuv.a"
@@ -301,16 +320,6 @@ ensure_headers_overlay() {
   OVERLAY_HEADERS="${WORK_DIR}/headers"
   mkdir -p "${OVERLAY_HEADERS}"
   rsync -a --delete "${HEADERS_DIR}/" "${OVERLAY_HEADERS}/"
-
-  # Only create if not present in upstream
-  if [[ ! -f "${OVERLAY_HEADERS}/module.modulemap" ]]; then
-    cat > "${OVERLAY_HEADERS}/module.modulemap" <<'EOF'
-module libyuv [system] {
-  umbrella header "libyuv.h"
-  export *
-}
-EOF
-  fi
 }
 
 # Write a manifest with the libyuv version and build configuration
@@ -321,6 +330,7 @@ write_manifest() {
     echo "Built on: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "iOS min: 13.0 | macOS min: 11.0 | Catalyst iOS min: 14.0 | tvOS min: 13.0"
     echo "Flags: symbol_level=0 optimize_for_size=true libyuv_disable_jpeg=true neon(arm64)=on sve=sme=off"
+    echo "Stripping: $([[ "${STRIP}" == "1" ]] && echo on || echo off)"
   } > "${mf}"
 }
 
@@ -336,22 +346,25 @@ done
 mac_uni="$(coalesce_universal "mac" \
           "${OUT_ROOT}/mac-arm64/pack/libyuv.a" \
           "${OUT_ROOT}/mac-x64/pack/libyuv.a")"
+strip_archive "${mac_uni}"
 
 # Mac Catalyst
 cat_uni="$(coalesce_universal "maccatalyst" \
           "${OUT_ROOT}/maccatalyst-arm64/pack/libyuv.a" \
           "${OUT_ROOT}/maccatalyst-x64/pack/libyuv.a")"
+strip_archive "${cat_uni}"
 
 # iOS Simulator
 ios_sim_uni="$(coalesce_universal "ios-sim" \
           "${OUT_ROOT}/ios-sim-arm64/pack/libyuv.a" \
           "${OUT_ROOT}/ios-sim-x64/pack/libyuv.a")"
+strip_archive "${ios_sim_uni}"
 
 # tvOS Simulator
 tvos_sim_uni="$(coalesce_universal "tvos-sim" \
           "${OUT_ROOT}/tvos-sim-arm64/pack/libyuv.a" \
           "${OUT_ROOT}/tvos-sim-x64/pack/libyuv.a")"
-
+strip_archive "${tvos_sim_uni}"
 
 # Rebuild LIBS with exactly one entry per family.
 # Keep device as-is; replace family pairs with the coalesced result if present.
