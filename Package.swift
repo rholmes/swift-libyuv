@@ -14,7 +14,10 @@ let package = Package(
     .target(
       name: "libyuv",
       dependencies: ["libyuvBinary"],
-      publicHeadersPath: "include"
+      publicHeadersPath: "include/libyuv",
+      cSettings: [
+        .headerSearchPath("include") // gives -I Sources/libyuv/include
+      ]
     ),
   ]
 )
