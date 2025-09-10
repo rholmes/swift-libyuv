@@ -7,14 +7,14 @@ let package = Package(
   name: "swift-libyuv",
   platforms: [.iOS(.v13), .macOS(.v12), .macCatalyst(.v14), .tvOS(.v13)],
   products: [
-    .library(name: "libyuv", targets: ["CLibYUV"]),
+    .library(name: "libyuv", targets: ["Clibyuv"]),
   ],
   targets: [
     .binaryTarget(
       name: "libyuvBinary",
       path: "Sources/libyuv.xcframework"),
     .target(
-      name: "CLibYUV",
+      name: "Clibyuv",
       dependencies: ["libyuvBinary"],
       publicHeadersPath: "include/libyuv",
       cSettings: [
