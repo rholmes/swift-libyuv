@@ -55,13 +55,6 @@ chmod +x build-libyuv-xcframework.sh
 ./build-libyuv-xcframework.sh
 ```
 
-### Optional toggles (environment variables)
-
-- **Strip symbols for smaller archives:**
-  ```bash
-  STRIP=1 ./build-libyuv-xcframework.sh
-  ```
-
 ---
   
 ## Script Overview
@@ -143,7 +136,7 @@ The script uses `gclient sync -r "src@${LIBYUV_REF}"`, ensuring DEPS and toolcha
 Then in your code:
 
 ```swift
-import libyuv
+import Clibyuv
 // Call libyuv APIs (e.g., I420ToARGB, ARGBToI420, etc.)
 ```
 
@@ -183,6 +176,9 @@ ls -1 Sources/libyuv.xcframework
 
 - **tvOS compile errors**  
   Make sure the tvOS slices set `target_platform="tvos"` and (if necessary) `use_blink=true`. Deployment minimum is set via `ios_deployment_target`.
+  
+- **Symbol strip issues**  
+  This script strips at the **archive** level only—safe for all slices. If you need unstripped libs, set `STRIP_LIBS=0`.
 
 ---
 
@@ -207,5 +203,5 @@ ls -1 Sources/libyuv.xcframework
 - [ ] Build succeeds on a clean machine.
 - [ ] `Sources/libyuv.xcframework` updated.
 - [ ] `Build/build-libyuv/dist/BUILD-METADATA.txt` recorded.
-- [ ] Swift sample compiles with `import libyuv`.
+- [ ] Swift sample compiles with `import Clibyuv`.
 - [ ] Tag your release and note the libyuv commit used.

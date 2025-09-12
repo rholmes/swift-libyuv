@@ -1,52 +1,46 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ---------- paths ----------
+# ==============================
+# Config (edit as needed)
+# ==============================
+LIBYUV_REF="06a1c004bbbca3cef3f468a8fe77704b855ca039"
+FRAMEWORK_NAME="libyuv.xcframework"  # output framework name
 # Where this script lives (…/swift-libyuv/Build)
 SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Repo root that contains Package.swift
 PKG_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
-
 # Work area for libyuv sources and build outputs
 WORK_DIR="${WORK_DIR:-${PKG_ROOT}/Build/build-libyuv}"
 SRC_DIR="${SRC_DIR:-${WORK_DIR}/src}"     # gclient-managed libyuv checkout
 OUT_ROOT="${OUT_ROOT:-${SRC_DIR}/out}"    # ninja out dir under checkout (required by gn wrapper)
 DIST_DIR="${DIST_DIR:-${WORK_DIR}/dist}"  # xcframework output
+XC_OUT="${DIST_DIR}/${FRAMEWORK_NAME}"
+SPM_XC_DEST="${SPM_XC_DEST:-$PKG_ROOT/Sources}"  # xcframework install dir
+SPM_HEADERS_DEST="${SPM_HEADERS_DEST:-$PKG_ROOT/Sources/Clibyuv/include}"  # shim header install dir
 
-# Headers come from libyuv sources
-HEADERS_DIR="${HEADERS_DIR:-${SRC_DIR}/include}"
-
-# ---------- configuration ----------
-LIBYUV_REF="06a1c004bbbca3cef3f468a8fe77704b855ca039"
-XCFRAMEWORK_NAME="libyuv.xcframework"
-
+# Deployment targets
 IOS_MIN="13.0"
-IOS_CATALYST_MIN="14.0"   # Catalyst’s iOS minimum
-MAC_MIN="11.0"            # macOS minimum
+IOS_SIM_MIN="13.0"
+CATALYST_IOS_MIN="14.0"     # Catalyst’s iOS minimum
+CATALYST_MACOS_MIN="11.0"   # Catalyst’s macOS minimum
+MACOS_MIN="11.0"
+TVOS_MIN="13.0"
+TVOS_SIM_MIN="13.0"
 
+# Optional toggles
+STRIP="${STRIP:-1}"                  # 1 to strip symbols in .a slices
+COPY_TO_SPM="${COPY_TO_SPM:-1}"      # 1 to copy the framework and headers to the Swift package
+
+# ==============================
+# Preflight
+# ==============================
 GN="${GN:-gn}"
 NINJA="${NINJA:-ninja}"
 XCBUILD="${XCBUILD:-xcodebuild}"
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "error: missing tool: $1" >&2; exit 1; }; }
 need "${GN}"; need "${NINJA}"; need "${XCBUILD}"
-
-# Toggle symbol stripping (default: off). Enable with STRIP=1 (or true/yes/on).
-STRIP="${STRIP:-0}"
-
-# Strip debug and local symbols from a static archive, preserving globals.
-# Safe for production static C libs: removes debug (-S) and local (-x),
-# does NOT use -s (which would remove all symbols).
-strip_archive() {
-  local lib="$1"
-  if [[ "${STRIP}" == "1" ]]; then
-    [[ -f "${lib}" ]] || { echo "!! strip failed, archive not found: ${lib}" >&2; exit 1; }
-    echo "==> strip ${lib}" >&2
-    strip -S -x "${lib}" || { echo "!! strip failed: ${lib}" >&2; exit 1; }
-  else
-    echo "==> strip disabled (STRIP=${STRIP}) for ${lib}" >&2
-  fi
-}
 
 # Ensure a Chromium-style checkout so depot_tools/gn.py is happy.
 # - Creates .gclient in WORK_DIR (idempotent)
@@ -103,7 +97,9 @@ EOF
 ensure_checkout
 mkdir -p "${OUT_ROOT}" "${DIST_DIR}"
 
-# ---------- target matrix ----------
+# ==============================
+# Target matrix
+# ==============================
 SLICES=(
   ios-device-arm64
   ios-sim-arm64
@@ -145,7 +141,7 @@ gen_args_for_slice() {
         target_os=\"ios\"
         target_cpu=\"arm64\"
         target_environment=\"simulator\"
-        ios_deployment_target=\"${IOS_MIN}\"
+        ios_deployment_target=\"${IOS_SIM_MIN}\"
         libyuv_use_neon=true
       ";;
     ios-sim-x64)
@@ -153,21 +149,21 @@ gen_args_for_slice() {
         target_os=\"ios\"
         target_cpu=\"x64\"
         target_environment=\"simulator\"
-        ios_deployment_target=\"${IOS_MIN}\"
+        ios_deployment_target=\"${IOS_SIM_MIN}\"
         libyuv_use_neon=false
       ";;
     mac-arm64)
       echo "${common}
         target_os=\"mac\"
         target_cpu=\"arm64\"
-        mac_deployment_target=\"${MAC_MIN}\"
+        mac_deployment_target=\"${MACOS_MIN}\"
         libyuv_use_neon=true
       ";;
     mac-x64)
       echo "${common}
         target_os=\"mac\"
         target_cpu=\"x64\"
-        mac_deployment_target=\"${MAC_MIN}\"
+        mac_deployment_target=\"${MACOS_MIN}\"
         libyuv_use_neon=false
       ";;
     maccatalyst-arm64)
@@ -175,8 +171,8 @@ gen_args_for_slice() {
         target_os=\"ios\"
         target_cpu=\"arm64\"
         target_environment=\"catalyst\"
-        mac_deployment_target=\"${MAC_MIN}\"
-        ios_deployment_target=\"${IOS_CATALYST_MIN}\"
+        mac_deployment_target=\"${CATALYST_MACOS_MIN}\"
+        ios_deployment_target=\"${CATALYST_IOS_MIN}\"
         libyuv_use_neon=true
       ";;
     maccatalyst-x64)
@@ -184,8 +180,8 @@ gen_args_for_slice() {
         target_os=\"ios\"
         target_cpu=\"x64\"
         target_environment=\"catalyst\"
-        mac_deployment_target=\"${MAC_MIN}\"
-        ios_deployment_target=\"${IOS_CATALYST_MIN}\"
+        mac_deployment_target=\"${CATALYST_MACOS_MIN}\"
+        ios_deployment_target=\"${CATALYST_IOS_MIN}\"
         libyuv_use_neon=false
       ";;
     tvos-device-arm64)
@@ -194,7 +190,7 @@ gen_args_for_slice() {
         target_platform=\"tvos\"
         target_cpu=\"arm64\"
         target_environment=\"device\"
-        ios_deployment_target=\"${IOS_MIN}\"
+        ios_deployment_target=\"${TVOS_MIN}\"
         ios_enable_code_signing=false
         libyuv_use_neon=true
         use_blink=true
@@ -205,7 +201,7 @@ gen_args_for_slice() {
         target_platform=\"tvos\"
         target_cpu=\"arm64\"
         target_environment=\"simulator\"
-        ios_deployment_target=\"${IOS_MIN}\"
+        ios_deployment_target=\"${TVOS_SIM_MIN}\"
         libyuv_use_neon=true
         use_blink=true
       ";;
@@ -215,7 +211,7 @@ gen_args_for_slice() {
         target_platform=\"tvos\"
         target_cpu=\"x64\"
         target_environment=\"simulator\"
-        ios_deployment_target=\"${IOS_MIN}\"
+        ios_deployment_target=\"${TVOS_SIM_MIN}\"
         libyuv_use_neon=false
         use_blink=true
       ";;
@@ -223,6 +219,10 @@ gen_args_for_slice() {
     *) echo "error: unknown slice $slice" >&2; exit 1;;
   esac
 }
+
+# ==============================
+# Helpers
+# ==============================
 
 # Emits a filelist of .o files (non-empty only) from one or more dirs.
 # Prints the path to the generated filelist on stdout.
@@ -247,6 +247,20 @@ make_objects_filelist() {
   # Deterministic order helps reproducibility
   LC_ALL=C sort -o "$filelist" "$filelist"
   printf '%s\n' "$filelist"
+}
+
+# Strip debug and local symbols from a static archive, preserving globals.
+# Safe for production static C libs: removes debug (-S) and local (-x),
+# does NOT use -s (which would remove all symbols).
+strip_archive() {
+  local lib="$1"
+  if [[ "${STRIP}" == "1" ]]; then
+    [[ -f "${lib}" ]] || { echo "!! strip failed, archive not found: ${lib}" >&2; exit 1; }
+    echo "==> strip ${lib}" >&2
+    strip -S -x "${lib}" || { echo "!! strip failed: ${lib}" >&2; exit 1; }
+  else
+    echo "==> strip disabled (STRIP=${STRIP}) for ${lib}" >&2
+  fi
 }
 
 # Merge ARM64 and x86_64 static libs into a single fat archive for a platform family.
@@ -315,11 +329,31 @@ build_slice() {
   printf '%s\n' "${outdir}/pack/libyuv.a"
 }
 
-# Write an overlay of headers + module map, then pass this to -headers
-ensure_headers_overlay() {
-  OVERLAY_HEADERS="${WORK_DIR}/headers"
-  mkdir -p "${OVERLAY_HEADERS}"
-  rsync -a --delete "${HEADERS_DIR}/" "${OVERLAY_HEADERS}/"
+# Stage public headers (single copy re-used for all slices)
+stage_headers() {
+  local hdr="${WORK_DIR}/headers"
+  mkdir -p "$hdr"
+  rsync -a --delete "${SRC_DIR}/include/" "${hdr}/"
+  printf '%s\n' "$hdr"
+}
+
+# Copy staged headers into the SwiftPM C shim (Sources/Clibyuv/include)
+install_headers_into_spm() {
+  local staged_headers="$1"  # e.g., $WORK_DIR/headers
+  local src="$staged_headers/"
+  local dest="$SPM_HEADERS_DEST"
+  echo "==> Installing headers into SwiftPM shim: $dest"
+  mkdir -p "$dest"
+  rsync -a --delete "$src" "$dest/"
+}
+
+# Copy xcframework into the SwiftPM target (Sources)
+install_framework_into_spm() {
+  local src="$XC_OUT"
+  local dest="$SPM_XC_DEST"
+  echo "==> Installing xcframework into SwiftPM target: $dest"
+  mkdir -p "$dest"
+  rsync -a --delete "$src" "$dest/"
 }
 
 # Write a manifest with the libyuv version and build configuration
@@ -334,13 +368,17 @@ write_manifest() {
   } > "${mf}"
 }
 
-# ---------- build all slices ----------
+# ==============================
+# Build all slices
+# ==============================
 declare -a LIBS=()
 for s in "${SLICES[@]}"; do
   LIBS+=( "$(build_slice "$s")" )
 done
 
-# ---------- build fat libs ----------
+# ==============================
+# Build fat libs
+# ==============================
 
 # macOS
 mac_uni="$(coalesce_universal "mac" \
@@ -388,21 +426,31 @@ for lib in "${LIBS[@]}"; do
   printf '✓ %s (%s)\n' "$lib" "$(xcrun lipo -info "$lib" 2>/dev/null || echo 'thin')"
 done >&2
 
-# ---------- create XCFramework ----------
-ensure_headers_overlay
+# ==============================
+# Create XCFramework
+# ==============================
+echo "==> Staging headers"
+HEADERS_DIR="$(stage_headers)"
 
 XC_ARGS=()
 for lib in "${LIBS[@]}"; do
-  XC_ARGS+=( -library "$lib" -headers "$OVERLAY_HEADERS" )
+  XC_ARGS+=( -library "$lib" -headers "$HEADERS_DIR" )
 done
 
-XC_OUT="${DIST_DIR}/${XCFRAMEWORK_NAME}"
 rm -rf "${XC_OUT}"
 echo "==> xcodebuild -create-xcframework" >&2
 "${XCBUILD}" -create-xcframework "${XC_ARGS[@]}" -output "${XC_OUT}"
 
 echo "==> Wrote ${XC_OUT}"
 
-# ---------- write manifest ----------
+# Optional: install framework and headers into SwiftPM shim
+if [[ "$COPY_TO_SPM" == "1" ]]; then
+  install_framework_into_spm
+  install_headers_into_spm "$HEADERS_DIR"
+fi
+
+# ==============================
+# Write manifest
+# ==============================
 write_manifest
 echo "==> Wrote manifest to ${DIST_DIR}/BUILD-METADATA.txt"
